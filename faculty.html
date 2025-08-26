@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Faculty/Admin Panel - Application Approval</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #0e0468;
+    color: white;
+    margin: 0;
+    padding: 1rem;
+  }
+  #admin-panel {
+    max-width: 900px;
+    margin: auto;
+    background: white;
+    color: black;
+    padding: 20px;
+    border-radius: 8px;
+  }
+  h2 {
+    text-align: center;
+    margin-bottom: 1rem;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th, td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: left;
+  }
+  th {
+    background-color: #0d0267;
+    color: white;
+  }
+  select {
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    width: 120px;
+  }
+  a {
+    color: #0d0267;
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+  #logout-btn {
+    margin-top: 1rem;
+    background-color: crimson;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div id="admin-panel">
+  <h2>Faculty/Admin Application Approval Panel</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Student ID</th>
+        <th>Reason</th>
+        <th>Submitted At</th>
+        <th>Attachment</th>
+        <th>Status</th>
+        <th>Change Status</th>
+      </tr>
+    </thead>
+    <tbody id="applications-table-body">
+      <tr><td colspan="6" style="text-align:center;">Loading...</td></tr>
+    </tbody>
+  </table>
+  <button id="logout-btn">Logout</button>
+</div>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+
+<script>
+  // Replace with your Firebase config
+  const firebaseConfig = {
+        apiKey: "AIzaSyCMSsngN8dwmR6cRQ7x4b6ozR-FAEsC1zo",
+        authDomain: "grievance-portal-1.firebaseapp.com",
+        projectId: "grievance-portal-1",
+        storageBucket: "grievance-portal-1.firebasestorage.app",
+        messagingSenderId: "23272066322",
+        appId: "1:23272066322:web:43b43def8b7f0d1f75f7cb",
+        measurementId: "G-YZ5WZ6FMDH"
+    };
+
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+
+  const tableBody = document.getElementById('applications-table-body');
+  const logoutBtn = document.getElementById('logout-btn');
+
+  // Simple admin auth - Replace with real auth (or hardcode admin credentials)
+  // For demo: login prompt on page load
+  async function adminLogin() {
+    const email = prompt("Admin Email:");
+    const password = prompt("Admin Password:");
+    try {
+      await auth.signInWithEmailAndPassword(email, password);
+    } catch (e) {
+      alert("Login failed: " + e.message);
+      location.reload();
+    }
+  }
+
+  // Listen for auth state
+  auth.onAuthStateChanged(user => {
+    if (user) {
+      loadApplications();
+    } else {
+      adminLogin();
+    }
+  });
+
+  // Logout button
+  logoutBtn.addEventListener('click', () => {
+    auth.signOut();
+  });
+
+  // Load all applications and listen real-time
+  function loadApplications() {
+    db.collection('applications')
+      .orderBy('submittedAt', 'desc')
+      .onSnapshot(snapshot => {
+        if (snapshot.empty) {
+          tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No applications found.</td></tr>';
+          return;
+        }
+        let html = '';
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          const docId = doc.id;
+          const submittedAt = data.submittedAt ? data.submittedAt.toDate().toLocaleString() : "N/A";
+          const status = data.status || 'pending';
+
+          html += `
+            <tr data-id="${docId}">
+              <td>${data.userId}</td>
+              <td>${data.reason}</td>
+              <td>${submittedAt}</td>
+              <td>${data.attachmentUrl ? `<a href="${data.attachmentUrl}" target="_blank">View</a>` : 'No Attachment'}</td>
+              <td>${status.toUpperCase()}</td>
+              <td>
+                <select class="status-select">
+                  <option value="pending" ${status === 'pending' ? 'selected' : ''}>Pending</option>
+                  <option value="approved" ${status === 'approved' ? 'selected' : ''}>Approved</option>
+                  <option value="rejected" ${status === 'rejected' ? 'selected' : ''}>Rejected</option>
+                </select>
+              </td>
+            </tr>
+          `;
+        });
+        tableBody.innerHTML = html;
+
+        // Add event listeners for all select dropdowns
+        document.querySelectorAll('.status-select').forEach(select => {
+          select.addEventListener('change', (e) => {
+            const tr = e.target.closest('tr');
+            const id = tr.getAttribute('data-id');
+            const newStatus = e.target.value;
+            updateStatus(id, newStatus);
+          });
+        });
+      }, err => {
+        tableBody.innerHTML = `<tr><td colspan="6" style="color:red; text-align:center;">Error loading data: ${err.message}</td></tr>`;
+      });
+  }
+
+  // Update application status in Firestore
+  function updateStatus(docId, status) {
+    db.collection('applications').doc(docId).update({ status })
+      .then(() => {
+        console.log(`Status updated to ${status} for ${docId}`);
+      })
+      .catch(err => {
+        alert('Failed to update status: ' + err.message);
+      });
+  }
+</script>
+
+</body>
+</html>

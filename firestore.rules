@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Students can read/write only their own applications
+    match /applications/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null;
+    }
+
+    // Admins can read/write all applications
+    match /applications/{docId} {
+      allow update: if request.auth != null && request.auth.token.admin == true;
+    }
+  }
+}

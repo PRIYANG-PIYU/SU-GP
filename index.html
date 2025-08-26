@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sigma University E-Gate Pass Portal</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #0e0468;
+    color: white;
+    margin: 0; padding: 0;
+  }
+  #login-section, #student-section, #admin-section {
+    max-width: 600px;
+    margin: 2rem auto;
+    background: white;
+    color: black;
+    border-radius: 8px;
+    padding: 20px;
+  }
+  label { display: block; margin-top: 10px; font-weight: bold;}
+  input, textarea, button, select {
+    width: 100%;
+    padding: 8px;
+    margin-top: 5px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+  }
+  button {
+    background-color: #0d0267;
+    color: white;
+    border: none;
+    margin-top: 15px;
+    cursor: pointer;
+  }
+  button:hover {
+    background-color: #130888;
+  }
+  h2 {
+    text-align: center;
+  }
+  #logout-btn {
+    background-color: crimson;
+    margin-top: 1rem;
+  }
+  #login-message {
+    color: red;
+    margin-top: 10px;
+    text-align: center;
+  }
+  .status-approved { color: green; font-weight: bold; }
+  .status-pending { color: orange; font-weight: bold; }
+  .status-rejected { color: red; font-weight: bold; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+  }
+  th, td {
+    border: 1px solid #ccc;
+    padding: 8px;
+    text-align: left;
+  }
+  tr:nth-child(even) {
+    background: #f0f0f0;
+  }
+  select.status-select {
+    width: auto;
+    padding: 4px 6px;
+  }
+</style>
+</head>
+<body>
+
+<!-- Login Section -->
+<div id="login-section">
+  <h2>Login / Signup</h2>
+  <input type="email" id="email" placeholder="Email" required />
+  <input type="password" id="password" placeholder="Password" required />
+  <button id="login-btn">Login</button>
+  <button id="signup-btn">Sign Up</button>
+  <p id="login-message"></p>
+</div>
+
+<!-- Student Section -->
+<div id="student-section" style="display:none;">
+  <h2>Student E-Gate Pass Application</h2>
+  <form id="application-form">
+    <label for="reason">Reason for Gate Pass</label>
+    <textarea id="reason" rows="4" required></textarea>
+
+    <button type="submit">Submit Application</button>
+  </form>
+
+  <h3>Your Applications</h3>
+  <div id="student-applications">Loading...</div>
+  <button id="logout-btn">Logout</button>
+</div>
+
+<!-- Admin Section -->
+<div id="admin-section" style="display:none;">
+  <h2>Admin / Faculty Panel</h2>
+  <h3>All Student Applications</h3>
+  <div id="all-applications">Loading...</div>
+  <button id="logout-admin-btn">Logout</button>
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+
+<script>
+  // Your Firebase config here (replace with your own config)
+  const firebaseConfig = {
+        apiKey: "AIzaSyCMSsngN8dwmR6cRQ7x4b6ozR-FAEsC1zo",
+        authDomain: "grievance-portal-1.firebaseapp.com",
+        projectId: "grievance-portal-1",
+        storageBucket: "grievance-portal-1.firebasestorage.app",
+        messagingSenderId: "23272066322",
+        appId: "1:23272066322:web:43b43def8b7f0d1f75f7cb",
+        measurementId: "G-YZ5WZ6FMDH"
+    };
+
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+
+  // Elements
+  const loginSection = document.getElementById('login-section');
+  const studentSection = document.getElementById('student-section');
+  const adminSection = document.getElementById('admin-section');
+
+  const emailInput = document.getElementById('email');
+  const passwordInput = document.getElementById('password');
+  const loginBtn = document.getElementById('login-btn');
+  const signupBtn = document.getElementById('signup-btn');
+  const loginMessage = document.getElementById('login-message');
+
+  const applicationForm = document.getElementById('application-form');
+  const reasonInput = document.getElementById('reason');
+
+  const studentApplicationsDiv = document.getElementById('student-applications');
+  const allApplicationsDiv = document.getElementById('all-applications');
+
+  const logoutBtn = document.getElementById('logout-btn');
+  const logoutAdminBtn = document.getElementById('logout-admin-btn');
+
+  let currentUser = null;
+  let studentUnsubscribe = null;
+  let adminUnsubscribe = null;
+
+  // Define admin email(s) here (can be more than one)
+  const adminEmails = ['admin@sigmauniversity.edu'];
+
+  // Auth state observer
+  auth.onAuthStateChanged(user => {
+    if (user) {
+      currentUser = user;
+      loginSection.style.display = 'none';
+
+      if (adminEmails.includes(user.email)) {
+        // Show admin panel
+        adminSection.style.display = 'block';
+        studentSection.style.display = 'none';
+        loginMessage.textContent = '';
+        listenAllApplications();
+      } else {
+        // Show student panel
+        studentSection.style.display = 'block';
+        adminSection.style.display = 'none';
+        loginMessage.textContent = '';
+        listenStudentApplications(user.uid);
+      }
+
+    } else {
+      // No user logged in
+      currentUser = null;
+      loginSection.style.display = 'block';
+      studentSection.style.display = 'none';
+      adminSection.style.display = 'none';
+      loginMessage.textContent = '';
+      if (studentUnsubscribe) studentUnsubscribe();
+      if (adminUnsubscribe) adminUnsubscribe();
+    }
+  });
+
+  // Sign Up
+  signupBtn.addEventListener('click', () => {
+    loginMessage.textContent = '';
+    const email = emailInput.value.trim();
+    const password = passwordInput.value.trim();
+    if (!email || !password) {
+      loginMessage.textContent = 'Please enter email and password.';
+      return;
+    }
+    auth.createUserWithEmailAndPassword(email, password)
+      .then(() => {
+        loginMessage.textContent = 'Signup successful! You are now logged in.';
+      })
+      .catch(err => {
+        loginMessage.textContent = err.message;
+      });
+  });
+
+  // Login
+  loginBtn.addEventListener('click', () => {
+    loginMessage.textContent = '';
+    const email = emailInput.value.trim();
+    const password = passwordInput.value.trim();
+    if (!email || !password) {
+      loginMessage.textContent = 'Please enter email and password.';
+      return;
+    }
+    auth.signInWithEmailAndPassword(email, password)
+      .catch(err => {
+        loginMessage.textContent = err.message;
+      });
+  });
+
+  // Logout buttons
+  logoutBtn.addEventListener('click', () => auth.signOut());
+  logoutAdminBtn.addEventListener('click', () => auth.signOut());
+
+  // Submit application
+  applicationForm.addEventListener('submit', e => {
+    e.preventDefault();
+    if (!currentUser) {
+      alert('Please login first.');
+      return;
+    }
+    const reason = reasonInput.value.trim();
+    if (!reason) {
+      alert('Please enter a reason.');
+      return;
+    }
+    db.collection('applications').add({
+      userId: currentUser.uid,
+      userEmail: currentUser.email,
+      reason,
+      status: 'pending',
+      submittedAt: firebase.firestore.FieldValue.serverTimestamp()
+    })
+    .then(() => {
+      alert('Application submitted successfully.');
+      applicationForm.reset();
+    })
+    .catch(err => alert('Error submitting: ' + err.message));
+  });
+
+  // Listen to student's own applications in realtime
+  function listenStudentApplications(uid) {
+    if (studentUnsubscribe) studentUnsubscribe();
+
+    studentUnsubscribe = db.collection('applications')
+      .where('userId', '==', uid)
+      .orderBy('submittedAt', 'desc')
+      .onSnapshot(snapshot => {
+        if (snapshot.empty) {
+          studentApplicationsDiv.innerHTML = '<p>No applications submitted yet.</p>';
+          return;
+        }
+        let html = '<table><thead><tr><th>Reason</th><th>Submitted At</th><th>Status</th></tr></thead><tbody>';
+        snapshot.forEach(doc => {
+          const app = doc.data();
+          const statusClass = getStatusClass(app.status);
+          const submittedAt = app.submittedAt ? app.submittedAt.toDate().toLocaleString() : 'Pending...';
+
+          html += `<tr>
+            <td>${escapeHtml(app.reason)}</td>
+            <td>${submittedAt}</td>
+            <td class="${statusClass}">${app.status.toUpperCase()}</td>
+          </tr>`;
+        });
+        html += '</tbody></table>';
+        studentApplicationsDiv.innerHTML = html;
+      });
+  }
+
+  // Listen to all applications for admin panel
+  function listenAllApplications() {
+    if (adminUnsubscribe) adminUnsubscribe();
+
+    adminUnsubscribe = db.collection('applications')
+      .orderBy('submittedAt', 'desc')
+      .onSnapshot(snapshot => {
+        if (snapshot.empty) {
+          allApplicationsDiv.innerHTML = '<p>No applications found.</p>';
+          return;
+        }
+        let html = '<table><thead><tr><th>Student Email</th><th>Reason</th><th>Submitted At</th><th>Status</th><th>Change Status</th></tr></thead><tbody>';
+        snapshot.forEach(doc => {
+          const app = doc.data();
+          const id = doc.id;
+          const statusClass = getStatusClass(app.status);
+          const submittedAt = app.submittedAt ? app.submittedAt.toDate().toLocaleString() : 'Pending...';
+
+          html += `<tr>
+            <td>${escapeHtml(app.userEmail)}</td>
+            <td>${escapeHtml(app.reason)}</td>
+            <td>${submittedAt}</td>
+            <td class="${statusClass}" id="status-${id}">${app.status.toUpperCase()}</td>
+            <td>
+              <select class="status-select" onchange="changeStatus('${id}', this.value)">
+                <option value="pending" ${app.status==='pending'?'selected':''}>Pending</option>
+                <option value="approved" ${app.status==='approved'?'selected':''}>Approved</option>
+                <option value="rejected" ${app.status==='rejected'?'selected':''}>Rejected</option>
+              </select>
+            </td>
+          </tr>`;
+        });
+        html += '</tbody></table>';
+        allApplicationsDiv.innerHTML = html;
+      });
+  }
+
+  // Change application status (called from admin dropdown)
+  async function changeStatus(docId, newStatus) {
+    try {
+      await db.collection('applications').doc(docId).update({
+        status: newStatus
+      });
+      // Status updated, UI updates automatically due to onSnapshot listener
+    } catch (err) {
+      alert('Failed to update status: ' + err.message);
+    }
+  }
+
+  // Utility: Get CSS class for status
+  function getStatusClass(status) {
+    if (status === 'approved') return 'status-approved';
+    if (status === 'pending') return 'status-pending';
+    if (status === 'rejected') return 'status-rejected';
+    return '';
+  }
+
+  // Utility: Escape HTML to prevent injection
+  function escapeHtml(text) {
+    if (!text) return '';
+    return text.replace(/[&<>"']/g, function(m) {
+      return ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      })[m];
+    });
+  }
+
+  // Make changeStatus global so it can be called from inline onchange attribute
+  window.changeStatus = changeStatus;
+
+</script>
+
+</body>
+</html>
